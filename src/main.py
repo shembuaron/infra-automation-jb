@@ -2,6 +2,7 @@ import logging
 from log import setup_logging
 import sys
 from pydantic import BaseModel, ValidationError
+from typing import Literal
 import boto3
 
 
@@ -26,7 +27,9 @@ def get_user_input():
     
     machines = []
     
-    for i in range(machine_amount):
+    i = 0
+    
+    while i < machine_amount:
         machine_name = input(f"Name for machine no. {i+1}:\n>>> ")
         machine_os = input(f"OS for machine no. {i+1}:\n>>> ")
         machine_cpu = input(f"CPU for machine no. {i+1}:\n>>> ")
@@ -36,16 +39,16 @@ def get_user_input():
         try:
             machine = Machine.model_validate(machine_specs)
             machines.append(machine)
+            i += 1
         except ValidationError as er:
-            print(er.errors()[0]["msg"])
-            i -= 1
+            logger.error(er.errors()[0]["msg"])
     
     print(machines)
 
 
 class Machine(BaseModel):
     name: str
-    os: str
+    os: Literal["Linux", "Windows"]
     cpu: str
     ram: int
 
