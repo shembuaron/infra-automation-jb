@@ -1,10 +1,11 @@
 [project]
-name = "infra-automation-jb"
+name = "infra-automation"
 version = "0.1.0"
-description = "Add your description here"
+description = "Automatic EC2 Provisioning and Configuration"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "boto3>=1.42.45",
+    "prompt-toolkit>=3.0.52",
     "pydantic>=2.12.5",
+    "pyfiglet>=1.0.4",
 ]
