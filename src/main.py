@@ -1,10 +1,12 @@
 import json
+import subprocess
 from enum import Enum
 
 # Separate validation errors between pydantic and prompt_toolkit
 from pydantic import BaseModel, ConfigDict, ValidationError as PydanticValidationError
 
-from prompt_toolkit import prompt
+# This will surely go well
+from prompt_toolkit import prompt, print_formatted_text as print
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.shortcuts import choice
 from prompt_toolkit.validation import Validator, ValidationError as PromptValidationError
@@ -46,6 +48,8 @@ available_types = [
 TypeChoice = Enum("TypeChoice", {key: key for key, _ in available_types})
 
 
+# Gives built-in print and model dump methods
+# No need for extra machine.py file
 class EC2Instance(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
     
@@ -54,18 +58,24 @@ class EC2Instance(BaseModel):
     type: TypeChoice
 
 
+# Pretty ugly global variable but what can you do
+ec2_instances: list[EC2Instance] = []
+
+
 class NameValidator(Validator):
     def validate(self, document):
         text = document.text
-        if not text.replace("_","").isalnum():
-            i = 0
-            for i, c in enumerate(text):
-                if not c.isalnum() and c != "_":
-                    break
-
+        if not text:
             raise PromptValidationError(
-                message="Name cannot be empty and may only conatin letters, numbers and underscores.",
-                cursor_position=i
+                message=" Name cannot be empty."
+            )
+        if not text.replace("_","").isalnum():
+            raise PromptValidationError(
+                message=" Name may only contain letters, numbers and underscores."
+            )
+        elif any(instance['name'] == text for instance in ec2_instances):
+            raise PromptValidationError(
+                message=" Name must be unique."
             )
 
 
@@ -91,51 +101,53 @@ def get_instance_type():
     return type
 
 
-def provision_ec2():
-    name = prompt(HTML("\n<b> Enter a name: </b>"), validator = NameValidator())
+def provision_ec2(): 
+    name = prompt(HTML(f"\n<b> Enter a name for machine no.{len(ec2_instances) + 1}: </b>"), validator = NameValidator())
     os = get_instance_os()
     type = get_instance_type()
     
     try:
         ec2_instance = EC2Instance.model_validate({'name': name, 'os': os, 'type': type})
-#         print(f"\n Provisioned {ec2_instance.name}: {ec2_instance.os}, {ec2_instance.type}")
         return ec2_instance
     except PydanticValidationError as err:
         print(err)
     
     
-def main():
-    # Pretty :)
-    print(pyfiglet.figlet_format("Infra Simulator", font="slant"))
-    
-    # TBD add type safety
-    ec2_instances = []
-    
-    action = choice(
-        message=HTML("<b>Select an option:</b>"),
-        options=[
-            ("provision", "Provision EC2 Machines"),
-            ("exit", "Exit")
-        ],
-        default="provision",
-        bottom_toolbar=HTML(
-        " Press <b>[Up]</b>/<b>[Down]</b> to select, <b>[Enter]</b> to accept."),
-    )
-    
-    if action == "provision":
-        while True:
-            ec2_instance = provision_ec2()
-            ec2_instances.append(ec2_instance.model_dump())
-            provision_again = prompt(HTML("\n<b> Provision another machine? [y/N] </b>"))
-            if not provision_again.lower() in ["y","ye","yes"]:
-                print("Exiting...")
-                break
+def main() -> None:
+    while True:
+        # Pretty :)
+        print(pyfiglet.figlet_format("Infra Simulator", font="slant"))
         
-        with open("configs/instances.json", "w") as f:
-            json.dump(ec2_instances, f, indent=4)
-        
-    elif action == "exit":
-        return
+        action = choice(
+            message=HTML("<b>Select an option:</b>"),
+            options=[
+                ("provision", "Provision EC2 Machines"),
+                ("install nginx", "Install Nginx"),
+                ("exit", "Exit")
+            ],
+            default="provision",
+            bottom_toolbar=HTML(
+            " Press <b>[Up]</b>/<b>[Down]</b> to select, <b>[Enter]</b> to accept."),
+        )
+                
+        if action == "provision":
+            while True:
+                ec2_instance = provision_ec2()
+                ec2_instances.append(ec2_instance.model_dump())
+                provision_again = prompt(HTML("\n<b> Provision another machine? [y/N] </b>"))
+                if not provision_again.lower() in ["y","ye","yes"]:
+                    break
+            
+            with open("configs/instances.json", "w") as f:
+                json.dump(ec2_instances, f, indent=4)
+                
+        elif action == "install nginx":
+            print("\n")
+            subprocess.run(["bash", "scripts/script.sh"])
+            
+        elif action == "exit":
+            print(HTML("\n<b> Exiting...</b>"))
+            return
     
     
 if __name__ == "__main__":
