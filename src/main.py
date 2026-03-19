@@ -127,9 +127,12 @@ def provision_ec2():
     
     
 def main() -> None:
+    # Create config and log directories
+    Path("configs").mkdir(exist_ok=True)
+    Path("logs").mkdir(exist_ok=True)
+    
     while True:
         print(pyfiglet.figlet_format("Infra Simulator", font="slant"))
-
         action = choice(
             message=HTML("<b>Select an option:</b>"),
             options=[
