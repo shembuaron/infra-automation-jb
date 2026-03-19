@@ -1,16 +1,27 @@
+# Basic imports
 import json
+import shutil
 import subprocess
+from pathlib import Path
 from enum import Enum
 
-# Separate validation errors between pydantic and prompt_toolkit
+# <333
+from loguru import logger
+
+# Pydantic is just for its methods, prompt-toolkit takes care of user validation.
+# Also, separate validation errors between pydantic and prompt_toolkit
 from pydantic import BaseModel, ConfigDict, ValidationError as PydanticValidationError
 
-# This will surely go well
-from prompt_toolkit import prompt, print_formatted_text as print
+# Main UI library
+from prompt_toolkit.validation import Validator, ValidationError as PromptValidationError
+from prompt_toolkit import prompt
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.shortcuts import choice
-from prompt_toolkit.validation import Validator, ValidationError as PromptValidationError
 
+# This will surely go well and have no unforseen consequences
+from prompt_toolkit import print_formatted_text as print
+
+#Pretty :)
 import pyfiglet
 
 
@@ -58,7 +69,7 @@ class EC2Instance(BaseModel):
     type: TypeChoice
 
 
-# Pretty ugly global variable but what can you do
+# TBD make a global variable in main()
 ec2_instances: list[EC2Instance] = []
 
 
@@ -110,18 +121,19 @@ def provision_ec2():
         ec2_instance = EC2Instance.model_validate({'name': name, 'os': os, 'type': type})
         return ec2_instance
     except PydanticValidationError as err:
+        #this should never really happen
         print(err)
+        raise
     
     
 def main() -> None:
     while True:
-        # Pretty :)
         print(pyfiglet.figlet_format("Infra Simulator", font="slant"))
-        
+
         action = choice(
             message=HTML("<b>Select an option:</b>"),
             options=[
-                ("provision", "Provision EC2 Machines"),
+                ("provision", "Provision EC2 Machines (mock-up)"),
                 ("install nginx", "Install Nginx"),
                 ("exit", "Exit")
             ],
@@ -136,6 +148,8 @@ def main() -> None:
                 ec2_instances.append(ec2_instance.model_dump())
                 provision_again = prompt(HTML("\n<b> Provision another machine? [y/N] </b>"))
                 if not provision_again.lower() in ["y","ye","yes"]:
+                    print(HTML(f"\n<b> Provisioning {len(ec2_instances)} machine(s)...</b>"))
+                    print(" (Saved config files to configs/instances.json)")
                     break
             
             with open("configs/instances.json", "w") as f:
@@ -143,10 +157,40 @@ def main() -> None:
                 
         elif action == "install nginx":
             print("\n")
-            subprocess.run(["bash", "scripts/script.sh"])
+            action = choice(
+                message=HTML("<b>WARNING:</b> This will actually install Nginx on your machine. Are you sure?"),
+                options=[
+                    ("install", "Yes, install Nginx."),
+                    ("back", "Back")
+                ],
+                default="back",
+                bottom_toolbar=HTML(
+                " Press <b>[Up]</b>/<b>[Down]</b> to select, <b>[Enter]</b> to accept."),
+            )
             
+            if action == "install":
+                print("Installing...")
+                if shutil.which("nginx"):
+                    print("Nginx is already installed.")
+                else:
+                    result = subprocess.run(["bash", "scripts/detect_package_manager.sh"], capture_output=True,
+                                   text=True, check=True)
+                    package_manager = result.stdout.strip()
+                    print(f"Detected package manager: {package_manager}")
+                    subprocess.run(["bash", "scripts/install_nginx.sh", package_manager], check=True)
+                    print("Starting service...")
+                    subprocess.run(["bash", "scripts/enable_nginx.sh"], check=True)
+                    result = subprocess.run(["systemctl", "is-active", "--wait", "--quiet", "nginx"], capture_output=True,
+                                            text=True, check=True)
+                    print("Nginx is running. Configuring...")
+                    if Path("/etc/nginx/nginx.conf").exists():
+                        print("Backing up previous config...")
+                        subprocess.run(["sudo", "cp", "/etc/nginx/nginx.conf", "/etc/nginx/nginx.conf.bak"], check=True)
+                    subprocess.run(["sudo", "cp", "scripts/nginx_example_config.conf", "/etc/nginx/nginx.conf"], check=True)
+                    print("Done!")
+                
         elif action == "exit":
-            print(HTML("\n<b> Exiting...</b>"))
+            print("\n Exiting...")
             return
     
     

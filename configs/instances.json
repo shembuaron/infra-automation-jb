@@ -1,7 +1,12 @@
 [
     {
-        "name": "asdasd",
-        "os": "ubuntu_server_24_04",
+        "name": "gasdffsda",
+        "os": "windows_server_2k25",
+        "type": "t3.medium"
+    },
+    {
+        "name": "ewrewraew",
+        "os": "macos_tahoe",
         "type": "t3.micro"
     }
 ]
