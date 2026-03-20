@@ -19,7 +19,7 @@ from prompt_toolkit import prompt
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.shortcuts import choice
 
-# This will surely go well and have no unforseen consequences
+# Replacing built-in function with one from a random library will surely go well and have no unforseen consequences
 from prompt_toolkit import print_formatted_text as print
 
 # Pretty :)
@@ -74,21 +74,17 @@ available_types = [
 TypeChoice = Enum("TypeChoice", {key: key for key, _ in available_types})
 
 
-# Gives built-in print and model dump methods
-# No need for extra machine.py file (EDIT: might still make one)
 class EC2Instance(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
-    
     name: str
     os: OSChoice
     type: TypeChoice
 
 
-# Ugly gloabl variable but whatever
-ec2_instances: list[EC2Instance] = []
-
-
 class NameValidator(Validator):
+    def __init__(self, existing_instances):
+        self.existing_instances = existing_instances
+    
     def validate(self, document):
         text = document.text
         if not text:
@@ -99,45 +95,60 @@ class NameValidator(Validator):
             raise PromptValidationError(
                 message=" Name may only contain letters, numbers and underscores."
             )
-        elif any(instance['name'] == text for instance in ec2_instances):
+        elif any(instance['name'] == text for instance in self.existing_instances):
             raise PromptValidationError(
                 message=" Name must be unique."
             )
+        
 
-
-def get_instance_os():
-    os = choice(
-        message="\nSelect an operating system:",
-        options=available_os,
-        default="amazon_linux",
-        bottom_toolbar=HTML(
-        " Press <b>[Up]</b>/<b>[Down]</b> to select, <b>[Enter]</b> to accept."),
-    )
-    return os
-
-
-def get_instance_type():
-    type = choice(
-        message="\nSelect an instance type:",
-        options=available_types,
-        default="t3.micro",
-        bottom_toolbar=HTML(
-        " Press <b>[Up]</b>/<b>[Down]</b> to select, <b>[Enter]</b> to accept."),
-    )
-    return type
-
-
-def provision_ec2(): 
-    name = prompt(f"\n Enter a name for machine no.{len(ec2_instances) + 1}: ", validator = NameValidator())
-    os = get_instance_os()
-    type = get_instance_type()
-    
+def provision_ec2_machines(): 
+    logger.debug("Provisioning start.")
+    ec2_instances: list[EC2Instance] = []
+    while True:      
+        instance_name = prompt(f"\n Enter a name for machine no.{len(ec2_instances) + 1}: ", validator = NameValidator(ec2_instances))
+        instance_os = choice(
+            message="\nSelect an operating system:",
+            options=available_os,
+            default="amazon_linux",
+            bottom_toolbar=HTML(
+            " Press <b>[Up]</b>/<b>[Down]</b> to select, <b>[Enter]</b> to accept."),
+        )
+        instance_type = choice(
+            message="\nSelect an instance type:",
+            options=available_types,
+            default="t3.micro",
+            bottom_toolbar=HTML(
+            " Press <b>[Up]</b>/<b>[Down]</b> to select, <b>[Enter]</b> to accept."),
+        )
+        try:
+            ec2_instance = EC2Instance.model_validate({'name': instance_name, 'os': instance_os, 'type': instance_type})
+            ec2_instances.append(ec2_instance.model_dump())
+        except PydanticValidationError as e:
+            logger.error("Achievement Unlocked! You triggered a validation error that should never happen. Go you :)")
+            logger.debug(e)
+            return
+        provision_again = choice(
+            message= "Provision another machine?",
+            options=[
+                ("yes", "Yes"),
+                ("no", "No")
+            ],
+            default="no",
+            bottom_toolbar=HTML(
+            " Press <b>[Up]</b>/<b>[Down]</b> to select, <b>[Enter]</b> to accept."),
+        )
+        if provision_again == "no":
+            break
     try:
-        ec2_instance = EC2Instance.model_validate({'name': name, 'os': os, 'type': type})
-        return ec2_instance
-    except PydanticValidationError:
-        logger.exception("Achievement Unlocked! You triggered a validation error that should never happen. Go you :)")
-    
+        with open("configs/instances.json", "w") as f:
+            logger.info("Saving configuration files to configs/instances.json\n")
+            json.dump(ec2_instances, f, indent=4)
+            logger.debug("Saving successful")                    
+    except OSError as e:
+        logger.error("Could not write to configs/instances.json\n")
+        logger.debug(e)
+    logger.debug("Provisioning end.")
+
 
 def install_nginx():
     print()
@@ -218,34 +229,10 @@ def main() -> None:
         )
                 
         if action == "provision":
-            logger.debug("Provisioning start.")
-            while True:
-                ec2_instance = provision_ec2()
-                ec2_instances.append(ec2_instance.model_dump())
-                provision_again = choice(
-                    message= "Provision another machine?",
-                    options=[
-                        ("yes", "Yes"),
-                        ("no", "No")
-                    ],
-                    default="no",
-                    bottom_toolbar=HTML(
-                    " Press <b>[Up]</b>/<b>[Down]</b> to select, <b>[Enter]</b> to accept."),
-                )
-                if provision_again == "no":
-                    logger.info("Saving configuration files to configs/instances.json\n")
-                    break
-                
-            try:
-                with open("configs/instances.json", "w") as f:
-                    json.dump(ec2_instances, f, indent=4)
-                    logger.debug("Saving successful")                    
-            except Exception:
-                logger.exception("Could not write to file.")
-                
-            logger.debug("Provisioning end.")
+            provision_ec2_machines()
                 
         elif action == "install nginx":
+            logger.debug("Entered install menu")
             print()
             action = choice(
                 message= "WARNING: This will actually install Nginx on your machine. Are you sure?",
@@ -260,9 +247,7 @@ def main() -> None:
             
             if action == "install":
                 install_nginx()
-            
-            elif action == "back":
-                print()
+            print()
                     
         elif action == "exit":
             print()
