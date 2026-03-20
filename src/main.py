@@ -22,8 +22,22 @@ from prompt_toolkit.shortcuts import choice
 # This will surely go well and have no unforseen consequences
 from prompt_toolkit import print_formatted_text as print
 
-#Pretty :)
+# Pretty :)
 import pyfiglet
+
+
+# Separate logging to onscreen and file. Not rotation but that's easily added if need be
+def setup_logger():
+    logger.remove()
+    logger.add("logs/provisioning.log", level="DEBUG")
+    logger.add(sys.stderr, level="INFO", format=" {message}", 
+               filter=lambda record: record["level"].name == "INFO")
+    logger.add(sys.stderr, level="WARNING", format=" WARNING: {message}",
+               filter=lambda record: record["level"].name == "WARNING")
+    logger.add(sys.stderr, level="ERROR", format="<light-red><b> ERROR:</b> {message}</light-red>", 
+           colorize=True, filter=lambda record: record["level"].name == "ERROR")
+    logger.add(sys.stderr, level="SUCCESS", format="<light-green><b> SUCCESS:</b> {message}</light-green>", 
+           colorize=True, filter=lambda record: record["level"].name == "SUCCESS")
 
 
 # Global varibables
@@ -61,7 +75,7 @@ TypeChoice = Enum("TypeChoice", {key: key for key, _ in available_types})
 
 
 # Gives built-in print and model dump methods
-# No need for extra machine.py file
+# No need for extra machine.py file (EDIT: might still make one)
 class EC2Instance(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
     
@@ -70,7 +84,7 @@ class EC2Instance(BaseModel):
     type: TypeChoice
 
 
-# TBD make a global variable in main()
+# Ugly gloabl variable but whatever
 ec2_instances: list[EC2Instance] = []
 
 
@@ -121,23 +135,65 @@ def provision_ec2():
     try:
         ec2_instance = EC2Instance.model_validate({'name': name, 'os': os, 'type': type})
         return ec2_instance
-    except PydanticValidationError as err:
-        #this should never really happen
-        print(err)
-        raise
+    except PydanticValidationError:
+        logger.exception("Achievement Unlocked! You triggered a validation error that should never happen. Go you :)")
     
-def setup_logger():
-    logger.remove()
-    logger.add("logs/provisioning.log", level="DEBUG")
-    logger.add(sys.stderr, level="INFO", format=" {message}", 
-               filter=lambda record: record["level"].name == "INFO")
-    logger.add(sys.stderr, level="WARNING", format=" WARNING: {message}",
-               filter=lambda record: record["level"].name == "WARNING")
-    logger.add(sys.stderr, level="ERROR", format="<light-red><b> ERROR:</b> {message}</light-red>", 
-           colorize=True, filter=lambda record: record["level"].name == "ERROR")
-    logger.add(sys.stderr, level="SUCCESS", format="<light-green><b> SUCCESS:</b> {message}</light-green>", 
-           colorize=True, filter=lambda record: record["level"].name == "SUCCESS")
+
+def install_nginx():
+    print()
+    logger.info("Installing...")
+    if shutil.which("nginx"):
+        logger.warning("Nginx is already installed.\n")
+        return
     
+    try:    
+        result = subprocess.run(["bash", "scripts/detect_package_manager.sh"], capture_output=True,
+                       text=True, check=True)
+        package_manager = result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        logger.error("Couldn't detect package manager.\n")
+        logger.debug(e)
+        return
+    
+    logger.info(f"Detected package manager: {package_manager}") 
+    try:
+        subprocess.run(["bash", "scripts/install_nginx.sh", package_manager], check=True)
+    except subprocess.CalledProcessError as e:
+        logger.error("Could not install Nginx.\n")
+        logger.debug(e)
+        return
+    
+    logger.info("Starting service...")
+    try:    
+        subprocess.run(["bash", "scripts/enable_nginx.sh"], check=True)
+        result = subprocess.run(["systemctl", "is-active", "--wait", "--quiet", "nginx"], capture_output=True,
+                            text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        logger.error("Could not start Nginx.\n")
+        logger.debug(e)
+        return
+    
+    logger.info("Nginx is running. Configuring...")
+    
+    if Path("/etc/nginx/nginx.conf").exists():
+        logger.warning("File /etc/nginx/nginx.conf found. Backing up previous config...")
+        try:
+            subprocess.run(["sudo", "cp", "/etc/nginx/nginx.conf", "/etc/nginx/nginx.conf.bak"], check=True)
+        except subprocess.CalledProcessError as e:
+            logger.error("Could not back up previous config.\n")
+            logger.debug(e)
+            return  
+    try:
+        subprocess.run(["sudo", "cp", "scripts/nginx_example_config.conf", "/etc/nginx/nginx.conf"], check=True)
+    except subprocess.CalledProcessError as e:
+        logger.error("Could not write the configuration file to /etc/nginx\n")
+        logger.debug(e)
+        return  
+    
+    logger.success("Nginx is installed and configured.")
+    logger.debug("Installation end.")
+    print()
+
 
 def main() -> None:
     
@@ -152,7 +208,7 @@ def main() -> None:
         action = choice(
             message="Select an option:",
             options=[
-                ("provision", "Provision EC2 Machines (mock-up)"),
+                ("provision", "Provision EC2 Machines"),
                 ("install nginx", "Install Nginx"),
                 ("exit", "Exit")
             ],
@@ -166,18 +222,30 @@ def main() -> None:
             while True:
                 ec2_instance = provision_ec2()
                 ec2_instances.append(ec2_instance.model_dump())
-                provision_again = prompt("\n Provision another machine? [y/N] ")
-                if not provision_again.lower() in ["y","ye","yes"]:
-                    print(f"\n Provisioning {len(ec2_instances)} machine(s)...\n")
+                provision_again = choice(
+                    message= "Provision another machine?",
+                    options=[
+                        ("yes", "Yes"),
+                        ("no", "No")
+                    ],
+                    default="no",
+                    bottom_toolbar=HTML(
+                    " Press <b>[Up]</b>/<b>[Down]</b> to select, <b>[Enter]</b> to accept."),
+                )
+                if provision_again == "no":
+                    logger.info("Saving configuration files to configs/instances.json\n")
                     break
-            
-            logger.debug("Saving config files")
-            with open("configs/instances.json", "w") as f:
-                json.dump(ec2_instances, f, indent=4)
+                
+            try:
+                with open("configs/instances.json", "w") as f:
+                    json.dump(ec2_instances, f, indent=4)
+                    logger.debug("Saving successful")                    
+            except Exception:
+                logger.exception("Could not write to file.")
+                
             logger.debug("Provisioning end.")
                 
         elif action == "install nginx":
-            logger.debug("Entered Nginx install menu.")
             print()
             action = choice(
                 message= "WARNING: This will actually install Nginx on your machine. Are you sure?",
@@ -191,37 +259,10 @@ def main() -> None:
             )
             
             if action == "install":
-                print()
-                logger.info("Installing...")
-                if shutil.which("nginx"):
-                    logger.warning("Nginx is already installed.")
-                    print()
-                else:
-                    try:    
-                        result = subprocess.run(["bash", "scripts/detect_package_manager.sh"], capture_output=True,
-                                       text=True, check=True)
-                        package_manager = result.stdout.strip()
-                    except CalledProcessError:
-                        #TBD
-                        break
-                    logger.info(f"Detected package manager: {package_manager}")
-                    subprocess.run(["bash", "scripts/install_nginx.sh", package_manager], check=True)
-                    logger.info("Starting service...")
-                    subprocess.run(["bash", "scripts/enable_nginx.sh"], check=True)
-                    result = subprocess.run(["systemctl", "is-active", "--wait", "--quiet", "nginx"], capture_output=True,
-                                            text=True, check=True)
-                    logger.info("Nginx is running. Configuring...")
-                    if Path("/etc/nginx/nginx.conf").exists():
-                        logger.warning("File /etc/nginx/nginx.conf found. Backing up previous config...")
-                        subprocess.run(["sudo", "cp", "/etc/nginx/nginx.conf", "/etc/nginx/nginx.conf.bak"], check=True)
-                    subprocess.run(["sudo", "cp", "scripts/nginx_example_config.conf", "/etc/nginx/nginx.conf"], check=True)
-                    logger.success("Nginx is installed and configured.")
-                    logger.debug("Installation end.")
-                    print()
+                install_nginx()
             
             elif action == "back":
                 print()
-                logger.debug("User terminated installation.")
                     
         elif action == "exit":
             print()
