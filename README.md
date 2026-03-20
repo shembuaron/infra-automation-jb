@@ -12,29 +12,23 @@ Python script to automate provisioning of EC2 machines and service installations
 
 ### With uv (recommended):
 
-Install [uv](https://docs.astral.sh/uv/) from your favorite package manager (you should use it anyways it's great) and then:
+Install [uv](https://docs.astral.sh/uv/) and then:
+```bash
+git clone https://github.com/shembuaron/infra-automation-jb.git
+cd infra-automation-jb/
+uv run python main.py
+```
 
-`   git clone https://github.com/shembuaron/infra-automation-jb.git`
-
-`   cd infra-automation-jb/`
-
-`   uv run python main.py`
 
 ### With pip
-
-If you can't/don't want to install uv:
-
-`   git clone https://github.com/shembuaron/infra-automation-jb.git`
-
-`   cd infra-automation-jb/`
-
-`   python -m venv .venv`
-
-`   source .venv/bin/activate`
-
-`   pip install -r requirements.txt`
-
-`   python main.py`
+```bash
+git clone https://github.com/shembuaron/infra-automation-jb.git
+cd infra-automation-jb/
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+python main.py
+```
 
 
 *This project is licensed under the DWUWWI-1.0 (Do Whatever You Want With It) license*
