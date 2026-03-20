@@ -20,7 +20,7 @@ uv run python main.py
 ```
 
 
-### With pip
+### With pip:
 ```bash
 git clone https://github.com/shembuaron/infra-automation-jb.git
 cd infra-automation-jb/
