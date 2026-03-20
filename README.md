@@ -16,7 +16,7 @@ Install [uv](https://docs.astral.sh/uv/) and then:
 ```bash
 git clone https://github.com/shembuaron/infra-automation-jb.git
 cd infra-automation-jb/
-uv run python main.py
+uv run python src/main.py
 ```
 
 
@@ -27,7 +27,7 @@ cd infra-automation-jb/
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python main.py
+python src/main.py
 ```
 
 
