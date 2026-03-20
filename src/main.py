@@ -1,3 +1,10 @@
+# INFRA AUTOMATION VERSION 0.2.0
+# by Shem
+# 
+# Automates provisioning of EC2 machines and installation of Nginx
+# Currently only mocks the provisioning process and saves the configuration
+# as json files
+
 # Basic imports
 import sys
 import json
